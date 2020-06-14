@@ -8,7 +8,7 @@ params<-list(
   eta  = 4,
   beta = 0.95,
   num_grid =100,
-  periods = 10,
+  periods = 10^4,
   epsilon = 10^-3
 )
 
@@ -36,7 +36,7 @@ sampling <- function(params){
         .$value
     }
     
-    V_hat <<- Vectorize(chebappxf(f, dims=params$num_grid, intervals=list(c(0,params$Q))))
+    V_hat <- Vectorize(ipol(f, dims=params$num_grid, intervals=list(c(0,params$Q))))
     
     g <- function(i,s){ 
       v.1 <- params$p.r*s - params$p.w*(params$Q-i+s) - params$alpha*(i-s) - params$eta + params$beta*V_hat(params$Q)
@@ -65,20 +65,31 @@ sampling <- function(params){
   sim.data <-
     data.frame(
       d = rlnorm(params$periods, params$mu, params$sigma),
-      i = 10) %>%
+      i = 1) %>%
     mutate(
       s = min(d, i),
       prob = 0.5,
       decision = NA
-    )%>%
+    )
+    
+
+  sim.data[1,] <- CCP(sim.data[1,])
+  
+  for(i in 2:params$periods){
+    sim.data[i,-1] <- sim.data[i-1,-1]
+    sim.data[i,] <-
+      sim.data[i,] %>%
       mutate(
-        i = ifelse(decision==1, params$Q, i-s),
-        s = min(i, d),
-        t = seq(params$periods))%>%
-      rowwise()%>%
-      do(CCP(.))%>%
-      saveRDS(paste0('C:/Users/yakov/Downloads/sim_data1.RDS'))
-}
+        i = ifelse(order_decision==1, Q, i-s),
+        s = min(i, d)
+      )
+    sim.data[i,] <- CCP(sim.data[i,])
+  }
+  
+  sim.data %>%saveRDS(paste0('C:/Users/yakov/Downloads/sim_data.RDS'))
+    
+  
+  }
 
 
 df<-readRDS('sim_data.RDS', refhook=NULL)
@@ -126,7 +137,7 @@ estimation <- function(df,
     f <- function(i){
       integrate(
         f.hat,
-        i = i,
+        i = df$i,
         pr = params$p.r,
         alpha = params$alpha,
         eta = params$eta,
@@ -136,7 +147,7 @@ estimation <- function(df,
         .$value
     }
     
-    f.tilde <- Vectorize(chebappxf(f(i), dims = num_grid, intervals = list(c(0,params$Q))))
+    f.tilde <- Vectorize(ipol(f(i), dims = num_grid, intervals = list(c(0,params$Q))))
     
     v <- function(x){
       p.w*(params$Q-x) + params$eta + params$beta*(f.tilde(x) - f.tilde(params$Q))
@@ -157,5 +168,5 @@ estimation <- function(df,
   start = data.frame(1,1,1)
   est.rest <- optim(start, estimate_f, method = "L-BFGS-B", lower = c(0,0, -Inf), control = list(trace = TRUE))
   
-  return(est.ms, est.rest )
+  return(est.ms, est.rest)
 }
